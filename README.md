@@ -27,7 +27,7 @@ protopediaに登録していますので、そちらもご覧ください。
 電卓によって変わるので設計し直しが必要と思われます。(データは参考程度です。)  
 
 - [base_and_pushers.gcode](/3dmodels/base_and_pushers.gcode)
-- [base_and_pushers.gcode](/3dmodels/spacer.gcode)
+- [spacer.gcode](/3dmodels/spacer.gcode)
 
 M2x6mmのネジでサイドの押さえと上面を止めます。  
 サーボモーターもM2x6mmで止めます。  
@@ -48,10 +48,12 @@ M2x6mmのネジでサイドの押さえと上面を止めます。
 
 ### ソフトウェア書き込み
 
+- このリポジトリをダウンロードします。
 - VSCodeにPlatformIO拡張モジュールインストールし、[platformio](/platformio)フォルダを開きます。  
 - 必要なライブラリーなど自動で読み込まれますので終わるまで待ちます。(下部ステータスバーでローディングのアニメーションが見えてる間)
 - env.h.sampleをコピーしenv.hを作成します。
 - 定数定義にSSIDとパスワードを書き込みます。
+- USBケーブルでPCとM5Atom Matrixを繋ぎます。
 - 下部ステータスバーの書き込みアイコン(レ点)を押して書き込みます。
 
 
