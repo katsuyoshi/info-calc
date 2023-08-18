@@ -17,7 +17,7 @@ CRGB leds[NUM_LEDS];
 // for ntp server
 
 static const char* ntpServer = "ntp.nict.jp";
-static const long gmtOffset_sec     = -1 * 3600;//9 * 3600;
+static const long gmtOffset_sec     = 9 * 3600;
 static const int daylightOffset_sec = 0;
 
 static bool time_available = false;
