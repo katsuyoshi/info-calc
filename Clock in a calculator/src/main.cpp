@@ -112,8 +112,8 @@ class Pusher {
 };
 
 static Pusher pushers[] = {
-  Pusher(22, 11,  8,  3),    // A: =, B: +
-  Pusher(19, 12, 12,  8),    // A: ., B: 0
+  Pusher(22, 12,  8,  3),    // A: =, B: +
+  Pusher(19, 13, 12,  8),    // A: ., B: 0
   Pusher(23, 14, 10, 12),    // A: 1, B: CA
 };
 
