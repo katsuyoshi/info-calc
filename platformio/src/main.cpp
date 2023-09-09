@@ -28,12 +28,14 @@ SOFTWARE.
 #include <WiFi.h>
 #include <FastLED.h>
 #include <time.h>
-
+#include <esp_now.h>
+#include "led.h"
 #include "env.h"
 
 // for LEDs
 #define NUM_LEDS 25
 #define LED_DATA_PIN 27
+#define BRIGHTNESS  50
 
 CRGB leds[NUM_LEDS];
 
@@ -55,6 +57,12 @@ typedef enum
     ServoStateOffB,
     ServoStateB,
 } ServoState;
+
+struct ChannelValue {
+    bool available;
+    float value;
+    char unit[8];
+};
 
 class Pusher
 {
@@ -146,7 +154,7 @@ public:
 };
 
 static Pusher pushers[] = {
-    Pusher(22, 12,  8, 3),  // A: =, B: +
+    Pusher(22, 12, 8, 3),   // A: =, B: +
     Pusher(19, 13, 12, 8),  // A: ., B: 0
     Pusher(23, 14, 10, 12), // A: 1, B: CA
 };
@@ -176,9 +184,11 @@ private:
     mode _mode = Unknown;
     int _hour = 0;
     int _minute = 0;
+    int _value = 0;
+    char *_unit_pattern;
 
 public:
-    void setTime(int hour, int minute)
+    void set_time(int hour, int minute)
     {
         if (_mode == Unknown)
         {
@@ -189,16 +199,24 @@ public:
         if (ret == false)
         {
             _mode = Unknown;
-            setTime(hour, minute);
+            set_time(hour, minute);
             return;
         }
         ret = set_hour(hour);
         if (ret == false)
         {
             _mode = Unknown;
-            setTime(hour, minute);
+            set_time(hour, minute);
             return;
         }
+        set_unit("clock");
+    }
+
+    void set_channel_value(ChannelValue *channel_value) {
+        if (channel_value->available == false) { return; }
+
+        set_value(channel_value->value);
+        set_unit(channel_value->unit);
     }
 
     void clear_all()
@@ -208,6 +226,76 @@ public:
         _hour = 0;
         _minute = 0;
         _mode = Clear;
+        _value = 0;
+        _unit_pattern = NULL;
+    }
+
+    void set_unit(const char *unit) {
+        const char *units[] = {
+            "clock",
+            "°C",
+            "%"
+        };
+
+        int num = sizeof(units) / sizeof(units[0]);
+        const char **ptr = &units[0];
+        char *pattern = NULL;
+
+        for (int i = 0; i < num; i++) {
+            if (strcmp(*ptr++, unit) == 0) {
+                switch (i) {
+                    case 0:
+                        pattern = led_clock_pattern;
+                        break;
+                    case 1:
+                        if (_value < 1000) {
+                            pattern = led_cold_temperature;
+                        } else
+                        if (_value > 2500) {
+                            pattern = led_hot_temperature;
+                        } else {
+                            pattern = led_norm_temperature;
+                        }
+                        break;
+                    case 2:
+                        if (_value < 3333) {
+                            pattern = led_low_humidity;
+                        } else
+                        if (_value > 6666) {
+                            pattern = led_high_humidity;
+                        } else {
+                            pattern = led_norm_humidity;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+        }
+        if (pattern == NULL) { return; }
+        if (pattern == _unit_pattern) { return; }
+        _unit_pattern = pattern;
+        Serial.println(_unit_pattern);
+
+        char *ch = _unit_pattern;
+        // Reverse the order of the set values for an upside-down arrangement.
+        for (int i = NUM_LEDS - 1; i >= 0; i--) {
+            switch (*ch++) {
+                case 'R':
+                    leds[i] = CRGB::Red;
+                    break;
+                case 'G':
+                    leds[i] = CRGB::Green;
+                    break;
+                case 'B':
+                    leds[i] = CRGB::Blue;
+                    break;
+                default:
+                    leds[i] = CRGB::Black;
+                    break;
+            }
+        }
+        FastLED.show();
     }
 
 #ifdef TEST_MODE
@@ -218,66 +306,37 @@ private:
 
     void push_clear_all()
     {
-        int no = 2 * 5 + 1;
-        leds[no] = CRGB::Green;
         pushers[2].push_b();
-        leds[no] = CRGB::Black;
-        FastLED.show();
         Serial.print("C");
     }
 
     void push_one()
     {
-        int no = 2 * 5 + 0;
-        leds[no] = CRGB::Green;
-        FastLED.show();
         pushers[2].push_a();
-        leds[no] = CRGB::Black;
-        FastLED.show();
         Serial.print("1");
     }
 
     void push_zero()
     {
-        int no = 1 * 5 + 1;
-        leds[no] = CRGB::Green;
-        FastLED.show();
         pushers[1].push_b();
-        leds[no] = CRGB::Black;
-        FastLED.show();
         Serial.print("0");
     }
 
     void push_dot()
     {
-        int no = 1 * 5 + 0;
-        leds[no] = CRGB::Green;
-        FastLED.show();
         pushers[1].push_a();
-        leds[no] = CRGB::Black;
-        FastLED.show();
         Serial.print(".");
     }
 
     void push_plus()
     {
-        int no = 0 * 5 + 1;
-        leds[no] = CRGB::Green;
-        FastLED.show();
         pushers[0].push_b();
-        leds[no] = CRGB::Black;
-        FastLED.show();
         Serial.print("+");
     }
 
     void push_equal()
     {
-        int no = 0 * 5 + 0;
-        leds[no] = CRGB::Green;
-        FastLED.show();
         pushers[0].push_a();
-        leds[no] = CRGB::Black;
-        FastLED.show();
         Serial.print("=");
     }
 
@@ -433,9 +492,62 @@ private:
         }
         return true;
     }
+
+    void set_digit(int number, int digit) {
+        if (number == 0) { return; }
+
+        switch (digit) {
+            case -2:
+                push_plus();
+                push_dot();
+                push_zero();
+                push_one();
+                break;
+            case -1:
+                push_plus();
+                push_dot();
+                push_one();
+                break;
+            case 0:
+                push_plus();
+                push_one();
+                break;
+            case 1:
+                push_plus();
+                push_one();
+                push_zero();
+                break;
+            defualt:
+                return;
+        }
+        for (int i = 0; i < number; i++)
+        {
+            push_equal();
+        }
+    }
+
+    void set_value(float value) {
+        int v = (value * 100 + 0.5);
+        if (v == _value) { return; }
+        _value = v;
+
+        int digit = -2;
+        for (int i = 0; i < 4; i++) {
+            set_digit(v % 10, digit++);
+            v /= 10;
+        }
+    }
 };
 
 static Calculator calc = Calculator();
+
+#define NUMBER_OF_CHANNEL       11
+
+static int current_channel = 0;
+static struct ChannelValue channel_values[NUMBER_OF_CHANNEL];
+
+static esp_now_peer_info_t espnow_slave;
+static bool espnow_setuped = false;
 
 static void update_time()
 {
@@ -448,9 +560,75 @@ static void update_time()
     Serial.println(&currentTime, "%Y %m %d %a %H:%M:%S");
 }
 
+static void espnow_on_data_receive(const uint8_t *mac_addr, const uint8_t *data, int data_len)
+{
+    ushort ch = 0;
+    float value = 0.0f;
+    char unit[8] = { 0 };
+    ChannelValue *channel_value;
+
+    sscanf((const char *)data, "%hd,%f,%s", &ch, &value, unit);
+    if (ch < 1 || ch >= NUMBER_OF_CHANNEL) {
+        Serial.printf("The channell is %d. ", ch);
+        Serial.println("The channel should 1 to 10.");
+        return;
+    }
+
+    channel_value = &channel_values[ch];
+    channel_value->available = true;
+    channel_value->value = value;
+    strncpy(channel_value->unit, unit, 8);
+
+    Serial.printf("<< %s\n", data);
+    Serial.printf("ch %d\n", ch);
+    Serial.printf("value %5.1f\n", value);
+    Serial.printf("unit %s %d\n", unit, strlen(unit));
+}
+
+// @refer: https://it-evo.jp/blog/blog-1397/
+static void espnow_setup_if_needed()
+{
+    if (espnow_setuped) return;
+
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect();
+    if (esp_now_init() == ESP_OK)
+    {
+        Serial.println("ESPNow Init Success");
+        espnow_setuped = true;
+    }
+    else
+    {
+        Serial.println("ESPNow Init Failed");
+        espnow_setuped = false;
+        ESP.restart();
+        return;
+    }
+
+    memset(&espnow_slave, 0, sizeof(espnow_slave));
+    for (int i = 0; i < 6; ++i)
+    {
+        espnow_slave.peer_addr[i] = (uint8_t)0xff;
+    }
+
+    esp_err_t addStatus = esp_now_add_peer(&espnow_slave);
+    if (addStatus == ESP_OK)
+    {
+        Serial.println("Pair success");
+    }
+    esp_now_register_recv_cb(espnow_on_data_receive);
+}
+
+static void display() {
+    if (current_channel == 0) {
+        calc.set_time(currentTime.tm_hour, currentTime.tm_min);
+    } else {
+        calc.set_channel_value(&channel_values[current_channel]);
+    }
+}
+
 void setup()
 {
-
     auto cfg = M5.config();
     M5.begin(cfg);
     M5.Display.setTextSize(3);
@@ -458,7 +636,17 @@ void setup()
     M5.Display.print("Hello World!!");
     Serial.println("Hello World!!");
 
+    for (int i = 0; i < NUMBER_OF_CHANNEL; i++) {
+        channel_values[i].available = false;
+        channel_values[i].value = 0.0f;
+        channel_values[i].unit[0] = '\0';
+    }
+    // channel zero is for time.
+    channel_values[0].available = true;
+
     FastLED.addLeds<NEOPIXEL, LED_DATA_PIN>(leds, NUM_LEDS); // GRB ordering is assumed
+    FastLED.setBrightness(BRIGHTNESS);
+
     leds[24] = CRGB::Red;
     FastLED.show();
 
@@ -529,8 +717,19 @@ void loop()
 
     if (M5.BtnA.wasPressed())
     {
+        int ch = current_channel;
+        for (int i = 0; i < NUMBER_OF_CHANNEL; i++) {
+            ch = (ch + 1) % NUMBER_OF_CHANNEL;
+            if (channel_values[ch].available) {
+                break;
+            }
+        }
+        if (current_channel == ch) { return; }
+
+        current_channel = ch;
+        Serial.printf("The current channel is %d\n", current_channel);
         calc.clear_all();
-        delay(10000);
+        display();
     }
 
     // update time
@@ -538,12 +737,12 @@ void loop()
     {
         n = 0;
         update_time();
-    }
-    if (time_available)
-    {
-        calc.setTime(currentTime.tm_hour, currentTime.tm_min);
+        if (time_available) {
+            espnow_setup_if_needed();
+        }
     }
 
+    display();
 #endif
 
     delay(10);
