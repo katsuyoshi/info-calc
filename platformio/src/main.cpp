@@ -48,6 +48,16 @@ static const int daylightOffset_sec = 0;
 static bool time_available = false;
 static struct tm currentTime;
 
+
+#define INVALID_DATA_INTERVAL   1 * 60 * 60 * 1000
+
+// showing data rounding
+#define ROUNDING_INTERVAL      30 * 1000
+
+static bool rounding = false;
+static unsigned long rounding_at = 0;
+
+
 // for pusher
 typedef enum
 {
@@ -59,8 +69,9 @@ typedef enum
 } ServoState;
 
 struct ChannelValue {
-    bool available;
     float value;
+    unsigned long received_at;
+    bool available;
     char unit[8];
 };
 
@@ -154,9 +165,9 @@ public:
 };
 
 static Pusher pushers[] = {
-    Pusher(22, 12, 8, 3),   // A: =, B: +
+    Pusher(22, 12, 10, 3),   // A: =, B: +
     Pusher(19, 13, 12, 8),  // A: ., B: 0
-    Pusher(23, 14, 10, 12), // A: 1, B: CA
+    Pusher(23, 15, 10, 12), // A: 1, B: CA
 };
 
 void move_servos()
@@ -549,6 +560,18 @@ static struct ChannelValue channel_values[NUMBER_OF_CHANNEL];
 static esp_now_peer_info_t espnow_slave;
 static bool espnow_setuped = false;
 
+static void set_rounding(bool f, bool update = false) {
+    if (update == false && rounding == f) { return; }
+    
+    rounding = f;
+    if (update) {
+        rounding_at = millis();
+    } else {
+        // for rounding immediately
+        rounding_at = millis() - ROUNDING_INTERVAL;
+    }
+}
+
 static void update_time()
 {
     if (!getLocalTime(&currentTime))
@@ -577,12 +600,15 @@ static void espnow_on_data_receive(const uint8_t *mac_addr, const uint8_t *data,
     channel_value = &channel_values[ch];
     channel_value->available = true;
     channel_value->value = value;
+    channel_value->received_at = millis();
     strncpy(channel_value->unit, unit, 8);
 
     Serial.printf("<< %s\n", data);
     Serial.printf("ch %d\n", ch);
     Serial.printf("value %5.1f\n", value);
     Serial.printf("unit %s %d\n", unit, strlen(unit));
+
+    set_rounding(true);
 }
 
 // @refer: https://it-evo.jp/blog/blog-1397/
@@ -631,10 +657,6 @@ void setup()
 {
     auto cfg = M5.config();
     M5.begin(cfg);
-    M5.Display.setTextSize(3);
-    M5.Display.setRotation(1);
-    M5.Display.print("Hello World!!");
-    Serial.println("Hello World!!");
 
     for (int i = 0; i < NUMBER_OF_CHANNEL; i++) {
         channel_values[i].available = false;
@@ -669,6 +691,8 @@ void setup()
 
     leds[24] = CRGB::Green;
     FastLED.show();
+
+    set_rounding(false);
 
     configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
     // WiFi.disconnect(true);
@@ -715,7 +739,29 @@ void loop()
 
 #else
 
-    if (M5.BtnA.wasPressed())
+    // Set it invalid after one hour past
+    unsigned long now = millis();
+    bool needs_to_change_current_channel = false;
+    for (int i = 1; i < NUMBER_OF_CHANNEL; i++) {
+        ChannelValue *channel_value = &channel_values[i];
+
+        if (channel_value->available &&
+            (now - channel_value->received_at >= INVALID_DATA_INTERVAL)) {
+            channel_value->available = false;
+            Serial.println("Invalid data");
+            if (i == current_channel) {
+                needs_to_change_current_channel = true;
+            }
+        }
+    }
+
+    if (rounding &&
+        (now - rounding_at >= ROUNDING_INTERVAL)) {
+        needs_to_change_current_channel = true;
+        set_rounding(true, true);
+    }
+
+    if (M5.BtnA.wasPressed() || needs_to_change_current_channel)
     {
         int ch = current_channel;
         for (int i = 0; i < NUMBER_OF_CHANNEL; i++) {
@@ -728,6 +774,10 @@ void loop()
 
         current_channel = ch;
         Serial.printf("The current channel is %d\n", current_channel);
+        // Quit the rounding mode if channel no is return to zero.
+        if (current_channel == 0) {
+            set_rounding(false);
+        }
         calc.clear_all();
         display();
     }
