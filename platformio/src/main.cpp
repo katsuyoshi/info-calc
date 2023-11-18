@@ -109,8 +109,8 @@ public:
         _a_angle = a_angle;
         _b_angle = b_angle;
         _adjust_angle = adjust_angle;
-        _on_time = 100;
-        _off_time = 100;
+        _on_time = 150;
+        _off_time = 150;
     }
 
     void begin()
@@ -165,9 +165,10 @@ public:
 };
 
 static Pusher pushers[] = {
-    Pusher(22, 12, 10, 3),   // A: =, B: +
-    Pusher(19, 13, 12, 8),  // A: ., B: 0
-    Pusher(23, 15, 10, 12), // A: 1, B: CA
+    Pusher(22, 10, 10, 9),      // A: =, B: +
+    Pusher(19, 16, 16, 9),      // A: ., B: 0
+    Pusher(23, 12, 10, 11),     // A: 1, B: CA
+    Pusher(33, 10, 10, 8),      // A:  , B: -
 };
 
 void move_servos()
@@ -349,6 +350,12 @@ private:
     {
         pushers[0].push_a();
         Serial.print("=");
+    }
+
+    void push_minus()
+    {
+        pushers[3].push_b();
+        Serial.print("-");
     }
 
 private:
@@ -676,7 +683,7 @@ void setup()
     ESP32PWM::allocateTimer(1);
     ESP32PWM::allocateTimer(2);
     ESP32PWM::allocateTimer(3);
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 4; i++)
     {
         pushers[i].begin();
     }
@@ -713,28 +720,35 @@ void loop()
         switch (test_state)
         {
         case 0:
-            calc.push_clear_all();
+            calc.push_equal();
             break;
         case 1:
             calc.push_plus();
             break;
+
         case 2:
-            calc.push_zero();
-            break;
-        case 3:
             calc.push_dot();
             break;
+        case 3:
+            calc.push_zero();
+            break;
+
         case 4:
             calc.push_one();
             break;
         case 5:
-            calc.push_equal();
+            calc.push_clear_all();
             break;
+
+        case 6:
+            calc.push_minus();
+            break;
+
         default:
             test_state = 0;
             calc.push_clear_all();
         }
-        test_state = (test_state + 1) % 6;
+        test_state = (test_state + 1) % 7;
     }
 
 #else
