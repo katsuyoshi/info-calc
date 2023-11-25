@@ -30,6 +30,8 @@ SOFTWARE.
 #include <time.h>
 #include <esp_now.h>
 #include "led.h"
+#include "pusher.h"
+#include "light.h"
 #include "env.h"
 
 // for LEDs
@@ -58,186 +60,11 @@ static bool rounding = false;
 static unsigned long rounding_at = 0;
 
 
-// for pusher
-typedef enum
-{
-    ServoStateInit,
-    ServoStateOffA,
-    ServoStateA,
-    ServoStateOffB,
-    ServoStateB,
-} ServoState;
-
 struct ChannelValue {
     float value;
     unsigned long received_at;
     bool available;
     char unit[8];
-};
-
-enum class LColor {
-    BLACK       = 0,
-    BLUE        = 1,
-    RED         = 2,
-    PURPLE      = 3,
-    GREEN       = 4,
-    CYAN        = 5,
-    YELLOW      = 6,
-    WHITE       = 7,
-};
-
-
-class Light
-{
-private:
-    int _b_pin;
-    int _r_pin;
-    int _g_pin;
-
-public:
-
-    typedef enum Color {
-
-    };
-
-    Light(int b_pin, int r_pin, int g_pin) {
-        _b_pin = b_pin;
-        _r_pin = r_pin;
-        _g_pin = g_pin;
-    }
-
-    void begin() {
-        pinMode(_r_pin, OUTPUT);
-        pinMode(_g_pin, OUTPUT);
-        pinMode(_b_pin, OUTPUT);
-    }
-
-    void set_color(LColor color) {
-
-        switch (color) {
-            case LColor::BLUE:
-            case LColor::PURPLE:
-            case LColor::CYAN:
-            case LColor::WHITE:
-                digitalWrite(_b_pin, HIGH);
-                break;
-            default:
-                digitalWrite(_b_pin, LOW);
-                break;
-        }
-        switch (color) {
-            case LColor::RED:
-            case LColor::PURPLE:
-            case LColor::YELLOW:
-            case LColor::WHITE:
-                digitalWrite(_r_pin, HIGH);
-                break;
-            default:
-                digitalWrite(_r_pin, LOW);
-                break;
-        }
-        switch (color) {
-            case LColor::GREEN:
-            case LColor::CYAN:
-            case LColor::YELLOW:
-            case LColor::WHITE:
-                digitalWrite(_g_pin, HIGH);
-                break;
-            default:
-                digitalWrite(_g_pin, LOW);
-                break;
-        }
-
-    }
-};
-
-class Pusher
-{
-private:
-    Servo _servo;
-    int _pin_no;
-    ServoState _state;
-    ServoState _ex_state;
-    int _adjust_angle;
-    int _a_angle;
-    int _b_angle;
-    int _on_time;
-    int _off_time;
-
-    int angle()
-    {
-        switch (_state)
-        {
-        case ServoStateA:
-            return 90 - _a_angle + _adjust_angle;
-        case ServoStateB:
-            return 90 + _b_angle + _adjust_angle;
-        default:
-            return 90 + _adjust_angle;
-        }
-    }
-
-public:
-    Pusher(int pin_no, int a_angle = 10, int b_angle = 10, int adjust_angle = 0)
-    {
-        _pin_no = pin_no;
-        _state = _ex_state = ServoStateInit;
-        _a_angle = a_angle;
-        _b_angle = b_angle;
-        _adjust_angle = adjust_angle;
-        _on_time = 150;
-        _off_time = 150;
-    }
-
-    void begin()
-    {
-        _servo.setPeriodHertz(50);
-        _servo.attach(_pin_no, 500, 2400);
-        setState(ServoStateOffA);
-    }
-
-    void setState(ServoState state)
-    {
-        _state = state;
-        if (_ex_state != _state)
-        {
-            _servo.write(angle());
-            _ex_state = _state;
-        }
-    }
-
-    void move_next()
-    {
-        _state = ServoState((int)_state + 1);
-        switch (_state)
-        {
-        case ServoStateInit:
-        case ServoStateOffA:
-        case ServoStateOffB:
-        case ServoStateA:
-        case ServoStateB:
-            break;
-        default:
-            _state = ServoStateOffA;
-        }
-        setState(_state);
-    }
-
-    void push_a()
-    {
-        setState(ServoStateA);
-        delay(_on_time);
-        setState(ServoStateOffA);
-        delay(_off_time);
-    }
-
-    void push_b()
-    {
-        setState(ServoStateB);
-        delay(_on_time);
-        setState(ServoStateOffB);
-        delay(_off_time);
-    }
 };
 
 static Pusher pushers[] = {
@@ -703,8 +530,11 @@ public:
 #endif
 
     void set_value(float value) {
-Serial.printf("set_value %.2f -> \t", value);
         int v = (value * 100 + 0.5);
+        if (_value == v) return;
+
+Serial.printf("set_value %.2f -> \t", value);
+
         int base = 1;
 
         for (int digit = 0; digit < 5; digit++) {
