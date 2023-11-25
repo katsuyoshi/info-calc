@@ -32,6 +32,13 @@ char led_clock_pattern[] =
     "B   B"
     " BBB ";
 
+char led_timer_pattern[] = 
+    " BRB "
+    "GGRGG"
+    "GGRGG"
+    "GGRGG"
+    " GGG ";
+
 // over 66 percent
 char led_hot_temperature[] = 
     "R RRR"

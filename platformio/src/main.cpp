@@ -64,7 +64,7 @@ struct ChannelValue {
     float value;
     unsigned long received_at;
     bool available;
-    char unit[8];
+    char unit[16];
 };
 
 static Pusher pushers[] = {
@@ -146,6 +146,7 @@ public:
     void set_unit(const char *unit) {
         const char *units[] = {
             "clock",
+            "timer",
             "°C",
             "%"
         };
@@ -161,6 +162,9 @@ public:
                         pattern = led_clock_pattern;
                         break;
                     case 1:
+                        pattern = led_timer_pattern;
+                        break;
+                    case 2:
                         if (_value < 1000) {
                             pattern = led_cold_temperature;
                         } else
@@ -170,7 +174,7 @@ public:
                             pattern = led_norm_temperature;
                         }
                         break;
-                    case 2:
+                    case 3:
                         if (_value < 3333) {
                             pattern = led_low_humidity;
                         } else
@@ -554,6 +558,7 @@ static Calculator calc = Calculator();
 
 static int current_channel = 0;
 static struct ChannelValue channel_values[NUMBER_OF_CHANNEL];
+static unsigned long last_received_at = 0;
 
 static esp_now_peer_info_t espnow_slave;
 static bool espnow_setuped = false;
@@ -585,7 +590,7 @@ static void espnow_on_data_receive(const uint8_t *mac_addr, const uint8_t *data,
 {
     ushort ch = 0;
     float value = 0.0f;
-    char unit[8] = { 0 };
+    char unit[16] = { 0 };
     ChannelValue *channel_value;
 
     sscanf((const char *)data, "%hd,%f,%s", &ch, &value, unit);
@@ -599,14 +604,20 @@ static void espnow_on_data_receive(const uint8_t *mac_addr, const uint8_t *data,
     channel_value->available = true;
     channel_value->value = value;
     channel_value->received_at = millis();
-    strncpy(channel_value->unit, unit, 8);
+    strncpy(channel_value->unit, unit, 16);
 
     Serial.printf("<< %s\n", data);
     Serial.printf("ch %d\n", ch);
     Serial.printf("value %5.1f\n", value);
     Serial.printf("unit %s %d\n", unit, strlen(unit));
 
-    set_rounding(true);
+    // タイマーの場合は継続して表示させるためラウンデングモードにせず直ぐにチャンネルを変更する。
+    bool rounding = strncmp(unit, "timer", strlen("timer")) != 0;
+    if (rounding == false) {
+        current_channel = ch;
+    }
+    set_rounding(rounding);
+    last_received_at = millis();
 }
 
 // @refer: https://it-evo.jp/blog/blog-1397/
@@ -641,6 +652,7 @@ static void espnow_setup_if_needed()
         Serial.println("Pair success");
     }
     esp_now_register_recv_cb(espnow_on_data_receive);
+    last_received_at = millis();
 }
 
 static void display() {
@@ -824,10 +836,21 @@ void loop()
         }
     }
 
+    // ラウンディングモード時はROUNDING_INTERVAL経過で次のチャンネルを表示する。
     if (rounding &&
         (now - rounding_at >= ROUNDING_INTERVAL)) {
         needs_to_change_current_channel = true;
         set_rounding(true, true);
+    } else {
+        // 最後の受信からROUNDING_INTERVAL経過したらラウンディングモードに戻す。
+        if (now - last_received_at >= ROUNDING_INTERVAL) {
+            // タイマーの場合は終了しているので無効にする。
+            if (strncmp(channel_values[current_channel].unit, "timer", strlen("timer")) == 0) {
+                channel_values[current_channel].available = false;
+            }
+            needs_to_change_current_channel = true;
+            set_rounding(true, true);
+        }
     }
 
     if (M5.BtnA.wasPressed() || needs_to_change_current_channel)
@@ -853,7 +876,7 @@ void loop()
 
     if (M5.BtnA.wasReleaseFor(1000)) {
         current_channel = 0;
-        calc.clear_all();
+        //calc.clear_all();
         display();
     }
 
