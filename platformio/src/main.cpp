@@ -75,6 +75,82 @@ struct ChannelValue {
     char unit[8];
 };
 
+enum class LColor {
+    BLACK       = 0,
+    BLUE        = 1,
+    RED         = 2,
+    PURPLE      = 3,
+    GREEN       = 4,
+    CYAN        = 5,
+    YELLOW      = 6,
+    WHITE       = 7,
+};
+
+
+class Light
+{
+private:
+    int _b_pin;
+    int _r_pin;
+    int _g_pin;
+
+public:
+
+    typedef enum Color {
+
+    };
+
+    Light(int b_pin, int r_pin, int g_pin) {
+        _b_pin = b_pin;
+        _r_pin = r_pin;
+        _g_pin = g_pin;
+    }
+
+    void begin() {
+        pinMode(_r_pin, OUTPUT);
+        pinMode(_g_pin, OUTPUT);
+        pinMode(_b_pin, OUTPUT);
+    }
+
+    void set_color(LColor color) {
+
+        switch (color) {
+            case LColor::BLUE:
+            case LColor::PURPLE:
+            case LColor::CYAN:
+            case LColor::WHITE:
+                digitalWrite(_b_pin, HIGH);
+                break;
+            default:
+                digitalWrite(_b_pin, LOW);
+                break;
+        }
+        switch (color) {
+            case LColor::RED:
+            case LColor::PURPLE:
+            case LColor::YELLOW:
+            case LColor::WHITE:
+                digitalWrite(_r_pin, HIGH);
+                break;
+            default:
+                digitalWrite(_r_pin, LOW);
+                break;
+        }
+        switch (color) {
+            case LColor::GREEN:
+            case LColor::CYAN:
+            case LColor::YELLOW:
+            case LColor::WHITE:
+                digitalWrite(_g_pin, HIGH);
+                break;
+            default:
+                digitalWrite(_g_pin, LOW);
+                break;
+        }
+
+    }
+};
+
 class Pusher
 {
 private:
@@ -167,9 +243,11 @@ public:
 static Pusher pushers[] = {
     Pusher(22, 10, 10, 9),      // A: =, B: +
     Pusher(19, 16, 16, 9),      // A: ., B: 0
-    Pusher(23, 12, 10, 11),     // A: 1, B: CA
+    Pusher(23, 14, 14, 11),     // A: 1, B: CA
     Pusher(33, 10, 10, 8),      // A:  , B: -
 };
+
+static Light light = Light(32, 26, 25);
 
 void move_servos()
 {
@@ -186,17 +264,26 @@ class Calculator
     {
         Unknown,
         Clear,
-        Add10Minutes,
+
         Add1Minute,
-        Add10Hours,
+        Add10Minutes,
+
         Add1Hour,
+        Add10Hours,
+        Add100Hours,
+
+        Sub1Minute,
+        Sub10Minutes,
+
+        Sub1Hour,
+        Sub10Hours,
+        Sub100Hours,
     } mode;
 
 private:
     mode _mode = Unknown;
-    int _hour = 0;
-    int _minute = 0;
     int _value = 0;
+    int _digit_values[4];
     char *_unit_pattern;
 
 public:
@@ -206,21 +293,7 @@ public:
         {
             clear_all();
         }
-        bool ret;
-        ret = set_minute(minute);
-        if (ret == false)
-        {
-            _mode = Unknown;
-            set_time(hour, minute);
-            return;
-        }
-        ret = set_hour(hour);
-        if (ret == false)
-        {
-            _mode = Unknown;
-            set_time(hour, minute);
-            return;
-        }
+        set_value((float)hour + (float)minute / 100.0);
         set_unit("clock");
     }
 
@@ -235,10 +308,11 @@ public:
     {
         push_clear_all();
         push_equal();
-        _hour = 0;
-        _minute = 0;
         _mode = Clear;
         _value = 0;
+        for (int i = 0; i < 4; i++) {
+            _digit_values[i] = 0;
+        }
         _unit_pattern = NULL;
     }
 
@@ -310,7 +384,7 @@ public:
         FastLED.show();
     }
 
-#ifdef TEST_MODE
+#if defined(TEST_MODE) || defined(TEST_COUNT_UP_DOWN)
 public:
 #else
 private:
@@ -359,12 +433,12 @@ private:
     }
 
 private:
-    // @return: if the hour is over 24 hours return false, otherwise return true.
-    bool add_ten_minutes(int times)
+
+    void add_ten_minutes(int times)
     {
         if (times == 0)
         {
-            return true;
+            return;
         }
         if (_mode != Add10Minutes)
         {
@@ -376,23 +450,35 @@ private:
         for (int i = 0; i < times; i++)
         {
             push_equal();
-            _minute += 10;
+            _value += 10;
         }
-        _hour += _minute / 100;
-        if (_hour >= 24)
-        {
-            return false;
-        }
-        _minute = _minute % 100;
-        return true;
     }
 
-    // @return: if the hour is over 24 hours return false, otherwise return true.
-    bool add_one_minute(int times)
+    void sub_ten_minutes(int times)
     {
         if (times == 0)
         {
-            return true;
+            return;
+        }
+        if (_mode != Sub10Minutes)
+        {
+            push_minus();
+            push_dot();
+            push_one();
+            _mode = Sub10Minutes;
+        }
+        for (int i = 0; i < times; i++)
+        {
+            push_equal();
+            _value -= 10;
+        }
+    }
+
+    void add_one_minute(int times)
+    {
+        if (times == 0)
+        {
+            return;
         }
         if (_mode != Add1Minute)
         {
@@ -405,23 +491,78 @@ private:
         for (int i = 0; i < times; i++)
         {
             push_equal();
-            _minute += 1;
+            _value += 1;
         }
-        _hour += _minute / 100;
-        if (_hour >= 24)
-        {
-            return false;
-        }
-        _minute = _minute % 100;
-        return true;
     }
 
-    // @return: if the hour is over 24 hours return false, otherwise return true.
-    bool add_ten_hours(int times)
+    void sub_one_minute(int times)
     {
         if (times == 0)
         {
-            return true;
+            return;
+        }
+        if (_mode != Sub1Minute)
+        {
+            push_minus();
+            push_dot();
+            push_zero();
+            push_one();
+            _mode = Sub1Minute;
+        }
+        for (int i = 0; i < times; i++)
+        {
+            push_equal();
+            _value -= 1;
+        }
+    }
+
+    void add_hundred_hours(int times)
+    {
+        if (times == 0)
+        {
+            return;
+        }
+        if (_mode != Add100Hours)
+        {
+            push_plus();
+            push_one();
+            push_zero();
+            push_zero();
+            _mode = Add100Hours;
+        }
+        for (int i = 0; i < times; i++)
+        {
+            push_equal();
+            _value += 10000;
+        }
+    }
+
+    void sub_hundred_hours(int times)
+    {
+        if (times == 0)
+        {
+            return;
+        }
+        if (_mode != Sub100Hours)
+        {
+            push_minus();
+            push_one();
+            push_zero();
+            push_zero();
+            _mode = Sub100Hours;
+        }
+        for (int i = 0; i < times; i++)
+        {
+            push_equal();
+            _value -= 10000;
+        }
+    }
+
+    void add_ten_hours(int times)
+    {
+        if (times == 0)
+        {
+            return;
         }
         if (_mode != Add10Hours)
         {
@@ -433,17 +574,35 @@ private:
         for (int i = 0; i < times; i++)
         {
             push_equal();
-            _hour += 10;
+            _value += 1000;
         }
-        return _hour < 24;
     }
 
-    // @return: if the hour is over 24 hours return false, otherwise return true.
-    bool add_one_hour(int times)
+    void sub_ten_hours(int times)
     {
         if (times == 0)
         {
-            return true;
+            return;
+        }
+        if (_mode != Sub10Hours)
+        {
+            push_minus();
+            push_one();
+            push_zero();
+            _mode = Sub10Hours;
+        }
+        for (int i = 0; i < times; i++)
+        {
+            push_equal();
+            _value -= 1000;
+        }
+    }
+
+    void add_one_hour(int times)
+    {
+        if (times == 0)
+        {
+            return;
         }
         if (_mode != Add1Hour)
         {
@@ -454,106 +613,108 @@ private:
         for (int i = 0; i < times; i++)
         {
             push_equal();
-            _hour += 1;
+            _value += 100;
         }
-        return _hour < 24;
     }
 
-    // @return: if the hour is over 24 hours return false, otherwise return true.
-    bool set_minute(int minute)
+    void sub_one_hour(int times)
     {
-        int diff = minute - _minute;
-        if (diff == 0)
+        if (times == 0)
         {
-            return true;
+            return;
         }
-        if (diff < 0)
+        if (_mode != Sub1Hour)
         {
-            diff += 100;
+            push_minus();
+            push_one();
+            _mode = Sub1Hour;
         }
-        bool ret;
-        ret = add_ten_minutes(diff / 10);
-        if (ret == false)
+        for (int i = 0; i < times; i++)
         {
-            return false;
+            push_equal();
+            _value -= 100;
         }
-        ret = add_one_minute(diff % 10);
-        if (ret == false)
-        {
-            return false;
-        }
-        return true;
-    }
-
-    // @return: if the hour is over 24 hours return false, otherwise return true.
-    bool set_hour(int hour)
-    {
-        int diff = hour - _hour;
-        if (diff == 0)
-        {
-            return true;
-        }
-        if (diff < 0)
-        {
-            diff += 24;
-        }
-        bool ret;
-        ret = add_ten_hours(diff / 10);
-        if (ret == false)
-        {
-            return false;
-        }
-        ret = add_one_hour(diff % 10);
-        if (ret == false)
-        {
-            return false;
-        }
-        return true;
-    }
+   }
 
     void set_digit(int number, int digit) {
         if (number == 0) { return; }
 
+        bool sign = number >= 0;
+        number = abs(number);
+        if (number > 5) {
+            number = 10 - number;
+            sign = !sign;
+        }
+
         switch (digit) {
-            case -2:
-                push_plus();
-                push_dot();
-                push_zero();
-                push_one();
-                break;
-            case -1:
-                push_plus();
-                push_dot();
-                push_one();
-                break;
             case 0:
-                push_plus();
-                push_one();
+                {
+                    if (sign) {
+                        add_one_minute(number);
+                    } else {
+                        sub_one_minute(number);
+                    }
+                }
                 break;
             case 1:
-                push_plus();
-                push_one();
-                push_zero();
+                {
+                    if (sign) {
+                        add_ten_minutes(number);
+                    } else {
+                        sub_ten_minutes(number);
+                   }
+                }
+                break;
+
+            case 2:
+                {
+                    if (sign) {
+                        add_one_hour(number);
+                    } else {
+                        sub_one_hour(number);
+                    }
+                }
+                break;
+            case 3:
+                {
+                    if (sign) {
+                        add_ten_hours(number);
+                    } else {
+                        sub_ten_hours(number);
+                    }
+                }
+                break;
+            case 4:
+                {
+                    if (sign) {
+                        add_hundred_hours(number);
+                    } else {
+                        sub_hundred_hours(number);
+                    }
+                }
                 break;
             defualt:
                 return;
         }
-        for (int i = 0; i < number; i++)
-        {
-            push_equal();
-        }
     }
 
-    void set_value(float value) {
-        int v = (value * 100 + 0.5);
-        if (v == _value) { return; }
-        _value = v;
+#if defined(TEST_MODE) || defined(TEST_COUNT_UP_DOWN)
+public:
+#endif
 
-        int digit = -2;
-        for (int i = 0; i < 4; i++) {
-            set_digit(v % 10, digit++);
-            v /= 10;
+    void set_value(float value) {
+Serial.printf("set_value %.2f -> \t", value);
+        int v = (value * 100 + 0.5);
+        int base = 1;
+
+        for (int digit = 0; digit < 5; digit++) {
+            if (_value == v) break;
+            int n = v - _value;
+            n = (n / base) % 10;
+            set_digit(n, digit);
+            base *= 10;
         }
+Serial.printf("\t-> _value %d, v: %d\n", _value, v);
     }
 };
 
@@ -679,6 +840,9 @@ void setup()
     leds[24] = CRGB::Red;
     FastLED.show();
 
+    light.begin();
+    light.set_color(LColor::WHITE);
+
     ESP32PWM::allocateTimer(0);
     ESP32PWM::allocateTimer(1);
     ESP32PWM::allocateTimer(2);
@@ -688,6 +852,7 @@ void setup()
         pushers[i].begin();
     }
 
+#if !defined(TEST_MODE) && !defined(TEST_COUNT_UP_DOWN)
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED)
     {
@@ -705,16 +870,12 @@ void setup()
     // WiFi.disconnect(true);
     // WiFi.mode(WIFI_OFF);
     delay(20);
+#endif
 }
 
-void loop()
-{
-    static int n = 0;
-    static int test_state = 0;
-    M5.update();
-
 #ifdef TEST_MODE
-    // test servo moving.
+// test servo moving.
+void test_mode() {
     if (M5.BtnA.wasPressed())
     {
         switch (test_state)
@@ -750,8 +911,72 @@ void loop()
         }
         test_state = (test_state + 1) % 7;
     }
+}
+#endif
 
-#else
+#ifdef TEST_COUNT_UP_DOWN
+void test_count_up_down() {
+    delay(10000);
+    Serial.println("test_count_up_down");
+
+    calc.clear_all();
+    for (int i = 0; i < 10; i++) {
+        calc.set_value((float)i * 0.01);
+        delay(1000);
+    }
+    for (int i = 0; i < 10; i++) {
+        calc.set_value((float)i * 0.1);
+        delay(1000);
+    }
+    for (int i = 0; i < 10; i++) {
+        calc.set_value((float)i * 1.0);
+        delay(1000);
+    }
+    for (int i = 0; i < 10; i++) {
+        calc.set_value((float)i * 10.0);
+        delay(1000);
+    }
+
+    calc.set_value(0.0);
+    delay(1000);
+
+    for (int i = 9; i >= 0; i--) {
+        calc.set_value((float)i * 10.0);
+        delay(1000);
+    }
+    for (int i = 9; i >= 0; i--) {
+        calc.set_value((float)i * 1.0);
+        delay(1000);
+    }
+    for (int i = 9; i >= 0; i--) {
+        calc.set_value((float)i * 0.1);
+        delay(1000);
+    }
+    for (int i = 9; i >= 0; i--) {
+        calc.set_value((float)i * 0.01);
+        delay(1000);
+    }
+
+    calc.set_value(0.0);
+    delay(1000);
+
+}
+#endif
+
+void loop()
+{
+    static int n = 0;
+    static int test_state = 0;
+    M5.update();
+
+#ifdef TEST_MODE
+    test_mode();
+    return;
+#endif
+#ifdef TEST_COUNT_UP_DOWN
+    test_count_up_down();
+    return;
+#endif
 
     // Set it invalid after one hour past
     unsigned long now = millis();
@@ -796,6 +1021,12 @@ void loop()
         display();
     }
 
+    if (M5.BtnA.wasReleaseFor(1000)) {
+        current_channel = 0;
+        calc.clear_all();
+        display();
+    }
+
     // update time
     if (++n >= (1000 / 10))
     {
@@ -807,7 +1038,5 @@ void loop()
     }
 
     display();
-#endif
-
     delay(10);
 }
