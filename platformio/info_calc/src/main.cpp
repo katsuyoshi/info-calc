@@ -59,6 +59,23 @@ static struct tm currentTime;
 static bool rounding = false;
 static unsigned long rounding_at = 0;
 
+// Light pattern
+enum LightPattern {
+    LIGHT_OFF,
+    LIGHT_NORMAL,
+    LIGHT_JUST_HOUR,
+    LIGHT_TIMER,
+    LIGHT_LESS_ONE_MINITUE,
+    LIGHT_LESS_THIRTY_SECONDS,
+    LIGHT_LESS_TEN_SECONDS,
+    LIGHT_LESS_FIVE_SECONDS,
+    LIGHT_BANG,
+    LIGHT_THREE_FEAVER,
+    LIGHT_FOUR_FEVER,
+};
+
+static LightPattern light_pattern = LIGHT_NORMAL;
+
 
 struct ChannelValue {
     float value;
@@ -107,28 +124,43 @@ class Calculator
         Sub100Hours,
     } mode;
 
+    typedef enum
+    {
+        UnitUnknown,
+        UnitClock,
+        UnitTimer,
+        UnitTemperature,
+        UnitHumidity,
+    } unit_type;
+
 private:
     mode _mode = Unknown;
     int _value = 0;
     int _digit_values[4];
     char *_unit_pattern;
+    unit_type _unit = UnitClock;
+    LightPattern _light_pattern = LIGHT_NORMAL;
 
 public:
+
+    unit_type unit() { return _unit; }
+    LightPattern light_pattern() { return _light_pattern; }
+
     void set_time(int hour, int minute)
     {
         if (_mode == Unknown)
         {
             clear_all();
         }
-        set_value((float)hour + (float)minute / 100.0);
         set_unit("clock");
+        set_value((float)hour + (float)minute / 100.0);
     }
 
     void set_channel_value(ChannelValue *channel_value) {
         if (channel_value->available == false) { return; }
 
-        set_value(channel_value->value);
         set_unit(channel_value->unit);
+        set_value(channel_value->value);
     }
 
     void clear_all()
@@ -160,9 +192,11 @@ public:
                 switch (i) {
                     case 0:
                         pattern = led_clock_pattern;
+                        _unit = UnitClock;
                         break;
                     case 1:
                         pattern = led_timer_pattern;
+                        _unit = UnitTimer;
                         break;
                     case 2:
                         if (_value < 1000) {
@@ -173,6 +207,7 @@ public:
                         } else {
                             pattern = led_norm_temperature;
                         }
+                        _unit = UnitTemperature;
                         break;
                     case 3:
                         if (_value < 3333) {
@@ -183,12 +218,15 @@ public:
                         } else {
                             pattern = led_norm_humidity;
                         }
+                        _unit = UnitHumidity;
                         break;
                     default:
+                        _unit = UnitUnknown;
                         break;
                 }
             }
         }
+
         if (pattern == NULL) { return; }
         if (pattern == _unit_pattern) { return; }
         _unit_pattern = pattern;
@@ -549,6 +587,49 @@ Serial.printf("set_value %.2f -> \t", value);
             base *= 10;
         }
 Serial.printf("\t-> _value %d, v: %d\n", _value, v);
+
+Serial.printf("unit %d\n", _unit);
+        switch(_unit) {
+        case UnitTimer:
+            if (_value >= 100) {
+                _light_pattern = LIGHT_TIMER;
+            } else
+            if (_value >= 30) {
+                _light_pattern = LIGHT_LESS_ONE_MINITUE;
+            } else
+            if (_value >= 10) {
+                _light_pattern = LIGHT_LESS_THIRTY_SECONDS;
+            } else
+            if (_value >= 5) {
+                _light_pattern = LIGHT_LESS_TEN_SECONDS;
+            } else
+            if (_value > 0) {
+                _light_pattern = LIGHT_LESS_FIVE_SECONDS;
+            } else {
+                _light_pattern = LIGHT_FOUR_FEVER;
+            }
+            break;
+
+        case UnitClock:
+            if ((_value % 100) == 0) {
+                _light_pattern = LIGHT_JUST_HOUR;
+                break;
+            } else {
+                _light_pattern = LIGHT_NORMAL;
+                // 分が00でない場合はdefaultでも判断させるためbreakなし。
+            }
+
+        default:
+            if ((_value < 1000) && (_value % 111 == 0)) {
+                _light_pattern = LIGHT_THREE_FEAVER;
+            } else
+            if (_value % 1111 == 0) {
+                _light_pattern = LIGHT_FOUR_FEVER;
+            } else {
+                _light_pattern = LIGHT_NORMAL;
+            }
+            break;
+        }
     }
 };
 
@@ -591,9 +672,12 @@ static void espnow_on_data_receive(const uint8_t *mac_addr, const uint8_t *data,
     ushort ch = 0;
     float value = 0.0f;
     char unit[16] = { 0 };
+    char buff[64] = { 0 };
     ChannelValue *channel_value;
 
-    sscanf((const char *)data, "%hd,%f,%s", &ch, &value, unit);
+    strncpy(buff, (const char *)data, min(data_len, 63));
+    
+    sscanf(buff, "%hd,%f,%s\n", &ch, &value, unit);
     if (ch < 1 || ch >= NUMBER_OF_CHANNEL) {
         Serial.printf("The channell is %d. ", ch);
         Serial.println("The channel should 1 to 10.");
@@ -604,15 +688,12 @@ static void espnow_on_data_receive(const uint8_t *mac_addr, const uint8_t *data,
     channel_value->available = true;
     channel_value->value = value;
     channel_value->received_at = millis();
-    strncpy(channel_value->unit, unit, 16);
+    strncpy(channel_value->unit, unit, 15);
 
-    Serial.printf("<< %s\n", data);
-    Serial.printf("ch %d\n", ch);
-    Serial.printf("value %5.1f\n", value);
-    Serial.printf("unit %s %d\n", unit, strlen(unit));
+    Serial.printf("<< %s\n", buff);
 
     // タイマーの場合は継続して表示させるためラウンデングモードにせず直ぐにチャンネルを変更する。
-    bool rounding = strncmp(unit, "timer", strlen("timer")) != 0;
+    bool rounding = strcmp(unit, "timer") != 0;
     if (rounding == false) {
         current_channel = ch;
     }
@@ -655,18 +736,133 @@ static void espnow_setup_if_needed()
     last_received_at = millis();
 }
 
+static void light_task(void *) {
+    bool changed;
+
+    light.begin();
+
+    while (true)
+    {
+        switch(light_pattern) {
+
+        case LIGHT_OFF:
+            light.set_color(LColor::BLACK);
+            delay(100);
+            break;
+
+        case LIGHT_NORMAL:
+            light.set_color(LColor::WHITE);
+            delay(100);
+            break;
+
+        case LIGHT_JUST_HOUR:
+            {
+                for (int i = 0; i < 3; i++) {
+                    light.set_color(LColor::BLACK);
+                    delay(500);
+                    light.set_color(LColor::GREEN);
+                    delay(500);
+                }
+                light.set_color(LColor::BLACK);
+                delay(500);
+                light_pattern = LIGHT_NORMAL;
+            }
+            break;
+
+        case LIGHT_TIMER:
+            light.set_color(LColor::BLUE);
+            delay(100);
+            break;
+
+        case LIGHT_LESS_ONE_MINITUE:
+            light.set_color(LColor::YELLOW);
+            delay(100);
+            break;
+
+        case LIGHT_LESS_THIRTY_SECONDS:
+            light.set_color(LColor::BLACK);
+            delay(1000);
+            light.set_color(LColor::YELLOW);
+            delay(1000);
+            break;
+
+        case LIGHT_LESS_TEN_SECONDS:
+            light.set_color(LColor::BLACK);
+            delay(500);
+            light.set_color(LColor::RED);
+            delay(500);
+            break;
+
+        case LIGHT_LESS_FIVE_SECONDS:
+            light.set_color(LColor::BLACK);
+            delay(250);
+            light.set_color(LColor::RED);
+            delay(250);
+            break;
+
+        case LIGHT_BANG:
+            light.set_color(LColor::RED);
+            delay(100);
+            break;
+
+        case LIGHT_THREE_FEAVER:
+            {
+                for (int i = 0; i < 5; i++) {
+                    for (int j = 0; j < 8; j++) {
+                        light.set_color((LColor)j);
+                        delay(200);
+                    }
+                }
+                light.set_color(LColor::BLACK);
+                delay(500);
+                light_pattern = LIGHT_NORMAL;
+            }
+            break;
+
+        case LIGHT_FOUR_FEVER:
+            {
+                for (int i = 0; i < 10; i++) {
+                    for (int j = 0; j < 8; j++) {
+                        light.set_color((LColor)j);
+                        delay(100);
+                    }
+                }
+                light.set_color(LColor::BLACK);
+                delay(500);
+                light_pattern = LIGHT_NORMAL;
+            }
+            break;
+
+        default:
+            light_pattern = LIGHT_OFF;
+            delay(100);
+            break;
+        }
+    }
+}
+
 static void display() {
     if (current_channel == 0) {
         calc.set_time(currentTime.tm_hour, currentTime.tm_min);
     } else {
         calc.set_channel_value(&channel_values[current_channel]);
     }
+    light_pattern = calc.light_pattern();
 }
 
 void setup()
 {
     auto cfg = M5.config();
     M5.begin(cfg);
+
+    M5.update();
+    // サーボが動き出すと通信ができなくなるのでAボタンを押しながら起動すると
+    // サーボ初期化せず書き込みできる様にここで停止させる。
+    if (M5.BtnA.isPressed()) {
+        while(true) {
+            delay(1000);
+        }
+    }
 
     for (int i = 0; i < NUMBER_OF_CHANNEL; i++) {
         channel_values[i].available = false;
@@ -682,9 +878,8 @@ void setup()
     leds[24] = CRGB::Red;
     FastLED.show();
 
-    light.begin();
-    light.set_color(LColor::WHITE);
-
+    xTaskCreatePinnedToCore(light_task, "light", 2048, NULL, 25, NULL, APP_CPU_NUM);
+    
     ESP32PWM::allocateTimer(0);
     ESP32PWM::allocateTimer(1);
     ESP32PWM::allocateTimer(2);
@@ -694,7 +889,7 @@ void setup()
         pushers[i].begin();
     }
 
-#if !defined(TEST_MODE) && !defined(TEST_COUNT_UP_DOWN)
+#if !defined(TEST_MODE) && !defined(TEST_COUNT_UP_DOWN) && !defined(TEST_LIGHT_PATTERN)
     WiFi.begin(ssid, password);
     while (WiFi.status() != WL_CONNECTED)
     {
@@ -805,6 +1000,17 @@ void test_count_up_down() {
 }
 #endif
 
+#ifdef TEST_LIGHT_PATTERN
+static void test_light_patter() {
+    for (int i = 0; i < (int)LIGHT_FOUR_FEVER + 1; i++) {
+Serial.printf("pattern: %d", i);
+        light_pattern = (LightPattern)i;
+        delay(10000);
+    }    
+}
+#endif
+
+
 void loop()
 {
     static int n = 0;
@@ -817,6 +1023,10 @@ void loop()
 #endif
 #ifdef TEST_COUNT_UP_DOWN
     test_count_up_down();
+    return;
+#endif
+#ifdef TEST_LIGHT_PATTERN
+    test_light_patter();
     return;
 #endif
 
@@ -845,7 +1055,7 @@ void loop()
         // 最後の受信からROUNDING_INTERVAL経過したらラウンディングモードに戻す。
         if (now - last_received_at >= ROUNDING_INTERVAL) {
             // タイマーの場合は終了しているので無効にする。
-            if (strncmp(channel_values[current_channel].unit, "timer", strlen("timer")) == 0) {
+            if (strcmp(channel_values[current_channel].unit, "timer") == 0) {
                 channel_values[current_channel].available = false;
             }
             needs_to_change_current_channel = true;

@@ -36,7 +36,7 @@ char led_timer_pattern[] =
     " BRB "
     "GGRGG"
     "GGRGG"
-    "GGRGG"
+    "GGGGG"
     " GGG ";
 
 // over 66 percent
