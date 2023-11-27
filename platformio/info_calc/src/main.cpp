@@ -1052,14 +1052,16 @@ void loop()
         needs_to_change_current_channel = true;
         set_rounding(true, true);
     } else {
-        // 最後の受信からROUNDING_INTERVAL経過したらラウンディングモードに戻す。
-        if (now - last_received_at >= ROUNDING_INTERVAL) {
-            // タイマーの場合は終了しているので無効にする。
-            if (strcmp(channel_values[current_channel].unit, "timer") == 0) {
-                channel_values[current_channel].available = false;
+        if (current_channel != 0) {
+            // 最後の受信からROUNDING_INTERVAL経過したらラウンディングモードに戻す。
+            if (now - last_received_at >= ROUNDING_INTERVAL) {
+                // タイマーの場合は終了しているので無効にする。
+                if (strcmp(channel_values[current_channel].unit, "timer") == 0) {
+                    channel_values[current_channel].available = false;
+                }
+                needs_to_change_current_channel = true;
+                set_rounding(true, true);
             }
-            needs_to_change_current_channel = true;
-            set_rounding(true, true);
         }
     }
 
