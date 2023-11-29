@@ -1081,13 +1081,12 @@ void loop()
         if (current_channel == 0) {
             set_rounding(false);
         }
-        calc.clear_all();
         display();
     }
 
     if (M5.BtnA.wasReleaseFor(1000)) {
         current_channel = 0;
-        //calc.clear_all();
+        calc.clear_all();
         display();
     }
 
