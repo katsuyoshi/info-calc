@@ -1045,10 +1045,11 @@ void loop()
     }
 
     // ラウンディングモード時はROUNDING_INTERVAL経過で次のチャンネルを表示する。
-    if (rounding &&
-        (now - rounding_at >= ROUNDING_INTERVAL)) {
-        needs_to_change_current_channel = true;
-        set_rounding(true, true);
+    if (rounding) {
+        if (now - rounding_at >= ROUNDING_INTERVAL) {
+            needs_to_change_current_channel = true;
+            set_rounding(true, true);
+        }
     } else {
         if (current_channel != 0) {
             // 最後の受信からROUNDING_INTERVAL経過したらラウンディングモードに戻す。
