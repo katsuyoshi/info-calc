@@ -74,8 +74,6 @@ enum LightPattern {
     LIGHT_FOUR_FEVER,
 };
 
-static LightPattern light_pattern = LIGHT_NORMAL;
-
 
 struct ChannelValue {
     float value;
@@ -145,6 +143,7 @@ public:
 
     unit_type unit() { return _unit; }
     LightPattern light_pattern() { return _light_pattern; }
+    void set_light_pattern(LightPattern pat) { _light_pattern = pat; }
 
     void set_time(int hour, int minute)
     {
@@ -611,7 +610,7 @@ Serial.printf("unit %d\n", _unit);
             break;
 
         case UnitClock:
-            if ((_value % 100) == 0) {
+            if ((_value % 100 == 0) && (currentTime.tm_sec < 2)) {
                 _light_pattern = LIGHT_JUST_HOUR;
                 break;
             } else {
@@ -743,7 +742,7 @@ static void light_task(void *) {
 
     while (true)
     {
-        switch(light_pattern) {
+        switch(calc.light_pattern()) {
 
         case LIGHT_OFF:
             light.set_color(LColor::BLACK);
@@ -765,7 +764,7 @@ static void light_task(void *) {
                 }
                 light.set_color(LColor::BLACK);
                 delay(500);
-                light_pattern = LIGHT_NORMAL;
+                calc.set_light_pattern(LIGHT_NORMAL);
             }
             break;
 
@@ -815,7 +814,7 @@ static void light_task(void *) {
                 }
                 light.set_color(LColor::BLACK);
                 delay(500);
-                light_pattern = LIGHT_NORMAL;
+                calc.set_light_pattern(LIGHT_NORMAL);
             }
             break;
 
@@ -829,12 +828,11 @@ static void light_task(void *) {
                 }
                 light.set_color(LColor::BLACK);
                 delay(500);
-                light_pattern = LIGHT_NORMAL;
+                calc.set_light_pattern(LIGHT_NORMAL);
             }
             break;
 
         default:
-            light_pattern = LIGHT_OFF;
             delay(100);
             break;
         }
@@ -847,7 +845,7 @@ static void display() {
     } else {
         calc.set_channel_value(&channel_values[current_channel]);
     }
-    light_pattern = calc.light_pattern();
+    calc.light_pattern();
 }
 
 void setup()
