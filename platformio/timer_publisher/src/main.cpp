@@ -2,12 +2,16 @@
 #include <M5Unified.h>
 #include <WiFi.h>
 #include <esp_now.h>
+#include <EEPROM.h>
+
+EEPROMClass  eeprom("eeprom");
 
 esp_now_peer_info_t espnow_slave;
 
 static bool started = false;
-static int minitus = 2;
+static int minitus = 1;
 static int remains = minitus * 600;
+static int preset = minitus * 600;
 
 // @refer https://it-evo.jp/blog/blog-1397/
 void espnow_on_data_sent(const uint8_t *mac_addr, esp_now_send_status_t status) {
@@ -73,6 +77,27 @@ Serial.println(str);
   }
 }
 
+void set_minitus(int m) {
+  minitus = m;
+  remains = minitus * 60 * 10;
+  preset = remains;
+}
+
+void load_settings() {
+    int m;
+    eeprom.get(0, m);
+    set_minitus(max(1, minitus));
+}
+
+void store_settings() {
+    int m;
+    eeprom.get(0, m);
+    if (m != minitus) {
+        eeprom.put(0, minitus);
+        eeprom.commit();
+    }
+}
+
 
 void display() {
   M5.Lcd.clear();
@@ -95,6 +120,9 @@ void setup() {
   M5.Lcd.setRotation(1);
   M5.Lcd.setTextSize(3);
 
+  eeprom.begin(4);
+  load_settings();
+
   espnow_setup();
   display();
 }
@@ -106,10 +134,12 @@ void loop() {
 
   if (M5.BtnA.wasPressed()) {
     Serial.println("Btn A was pressed");
-    started = started ? false : true;
-    if (started) {
-      if (remains == 0) {
-        remains = minitus * 60 * 10;
+    if (started == false && remains == 0) {
+        set_minitus(minitus);
+    } else {
+      started = started ? false : true;
+      if (started) {
+        store_settings();
       }
     }
     display();
@@ -117,15 +147,17 @@ void loop() {
   if (M5.BtnB.wasPressed()) {
     Serial.println("Btn B was pressed");
     if (started == false) {
-      minitus++;
-      remains = minitus * 60 * 10;
+      if (preset != remains) {
+        set_minitus(minitus);
+      } else {
+        set_minitus(minitus + 1);
+      }
     }
     display();
   }
   if (M5.BtnB.wasReleaseFor(1000)) {
     Serial.println("Btn B was long pressed");
-    minitus = 2;
-    remains = minitus * 60 * 10;
+    set_minitus(1);
     display();
   }
 
@@ -155,5 +187,4 @@ Serial.printf("f: %f\n", f);
   }
 
   delay(10);
-
 }
