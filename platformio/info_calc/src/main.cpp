@@ -83,9 +83,9 @@ struct ChannelValue {
 };
 
 static Pusher pushers[] = {
-    Pusher(22, 10, 10, 9),      // A: =, B: +
-    Pusher(19, 16, 16, 9),      // A: ., B: 0
-    Pusher(23, 14, 14, 11),     // A: 1, B: CA
+    Pusher(22, 11, 10, 9),      // A: =, B: +
+    Pusher(19, 16, 17, 9),      // A: ., B: 0
+    Pusher(23, 16, 16, 11),     // A: 1, B: CA
     Pusher(33, 10, 10, 8),      // A:  , B: -
 };
 
