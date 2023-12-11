@@ -9,6 +9,7 @@ EEPROMClass  eeprom("eeprom");
 esp_now_peer_info_t espnow_slave;
 
 static bool started = false;
+static unsigned long stopped_at = 0;
 static int minitus = 1;
 static int remains = minitus * 600;
 static int preset = minitus * 600;
@@ -125,6 +126,8 @@ void setup() {
 
   espnow_setup();
   display();
+
+  stopped_at = millis();
 }
 
 void loop() {
@@ -168,11 +171,9 @@ void loop() {
     if (started) {
       if (remains % 10 == 0) {
         int v = remains / 10;
-Serial.printf("v: %d\n", v);
         int m = v / 60;
         int s = v % 60;
         float f = (float)m + (float)s * 0.01;
-Serial.printf("f: %f\n", f);
         espnow_send(3, f, "timer");
         display();
       }
@@ -184,6 +185,14 @@ Serial.printf("f: %f\n", f);
         display();
       }
     }
+  }
+
+  // The device will automatically power off after two minutes when the timer stops.
+  if (started) {
+    stopped_at = millis();
+  }
+  if (millis() - stopped_at >= 2 * 60 * 1000) {
+    M5.Power.powerOff();
   }
 
   delay(10);
